@@ -26,44 +26,85 @@ async function run() {
   try {
     await client.connect();
     const db = client.db("utilitybill_db");
-
-    // COLLECTIONS
+const lessonDb = client.db("lesson_database");    // COLLECTIONS
     const utilitybillCollection = db.collection("utilitybills");
     const userCollection = db.collection("users");
     const myBillsCollection = db.collection("myBills");
-
-    const lessonCollection = db.collection("lessons");
-    const lessonUsersCollection = db.collection("lessonUsers");
-    const lessonRequestsCollection = db.collection("lessonRequests");
-    const reportedLessonsCollection = db.collection("reportedLessons");
+   
+   const lessonCollection = lessonDb.collection("lessons");
+const lessonUsersCollection = lessonDb.collection("lessonUsers");
+const lessonRequestsCollection = lessonDb.collection("lessonRequests");
+const reportedLessonsCollection = lessonDb.collection("reportedLessons");
 
     // VERIFY ADMIN
-    const verifyAdmin = async (req, res, next) => {
-      const email = req.query.email || req.body.email;
-      if (!email) return res.status(401).send({ message: "Unauthorized access" });
+ const verifyAdmin = async (req, res, next) => {
+  const email = req.query.email || req.body.email;
 
-      const user = await lessonUsersCollection.findOne({ email });
-      if (!user || user.role !== "admin") return res.status(403).send({ message: "Forbidden: Admin only" });
+  if (!email) {
+    return res.status(401).send({ message: "Email required" });
+  }
 
-      next();
-    };
+  let user = await lessonUsersCollection.findOne({ email });
+
+  // AUTO CREATE ADMIN IF NOT EXISTS
+  if (!user && email === "admin1234@gmail.com") {
+    await lessonUsersCollection.insertOne({
+      email,
+      name: "Admin",
+      role: "admin",
+      premium: true,
+      createdAt: new Date(),
+    });
+
+    user = await lessonUsersCollection.findOne({ email });
+  }
+
+  if (!user || user.role !== "admin") {
+    return res.status(403).send({ message: "Admin access only" });
+  }
+
+  next();
+};
+
 
     // ===== LESSON USERS =====
-    app.post("/lesson-users", async (req, res) => {
-      const { email, name } = req.body;
-      const exists = await lessonUsersCollection.findOne({ email });
-      if (exists) return res.send({ message: "Lesson user already exists" });
+  app.post("/lesson-users", async (req, res) => {
+  const { email, name, photo } = req.body;
 
-      const role = email === "admin1234@gmail.com" ? "admin" : "user";
-      const result = await lessonUsersCollection.insertOne({
-        email,
-        name,
-        role,
-        premium: false,
-        createdAt: new Date(),
-      });
-      res.send(result);
-    });
+  if (!email) return res.send({});
+
+  const exists = await lessonUsersCollection.findOne({ email });
+  if (exists) return res.send(exists);
+
+  const role = email === "admin1234@gmail.com" ? "admin" : "user";
+
+  const result = await lessonUsersCollection.insertOne({
+    email,
+    name: name || "Unknown User",
+    photo: photo || "",
+    role,
+    premium: false,
+    createdAt: new Date(),
+  });
+
+  res.send(result);
+});
+
+  // app.post("/lesson-users", async (req, res) => {
+  //     const { email, name } = req.body;
+  //     const exists = await lessonUsersCollection.findOne({ email });
+  //     if (exists) return res.send({ message: "Lesson user already exists" });
+
+  //     const role = email === "admin1234@gmail.com" ? "admin" : "user";
+  //     const result = await lessonUsersCollection.insertOne({
+  //       email,
+  //       name,
+  //       role,
+  //       premium: false,
+  //       createdAt: new Date(),
+  //     });
+  //     res.send(result);
+  //   });
 
     app.get("/lesson-users/role", async (req, res) => {
       const email = req.query.email;
@@ -72,46 +113,78 @@ async function run() {
     });
 
     // ===== LESSONS =====
+   app.post("/lessons", async (req, res) => {
+  const lesson = {
+    ...req.body,
+    status: "approved", //  directly approved
+    createdAt: new Date(),
+  };
+
+  const result = await lessonCollection.insertOne(lesson);
+  res.send({ success: true, result });
+});
+
     // Add Lesson (User → Pending Approval)
-    app.post("/lessons", async (req, res) => {
-      const { author, title, category, premium } = req.body;
+// app.post("/lessons", async (req, res) => {
+//   const {
+//     authorEmail,
+//     authorName,
+//     authorPhoto,
+//     title,
+//     category,
+//     shortDescription,
+//     emotionalTone,
+//     accessLevel,
+//   } = req.body;
 
-      // Ensure user exists
-      let user = await lessonUsersCollection.findOne({ email: author });
-      if (!user) {
-        user = await lessonUsersCollection.insertOne({
-          email: author,
-          name: author,
-          role: "user",
-          premium: false,
-          createdAt: new Date(),
-        });
-      }
+//   if (!authorEmail || !title) {
+//     return res.status(400).send({ message: "Missing fields" });
+//   }
 
-      // Insert lesson
-      const lesson = {
-        title,
-        category,
-        author,
-        premium: premium || false,
-        status: "pending",
-        createdAt: new Date(),
-      };
-      const result = await lessonCollection.insertOne(lesson);
+//   //  ENSURE USER EXISTS
+//   let user = await lessonUsersCollection.findOne({ email: authorEmail });
 
-      // Insert into lessonRequests for admin approval
-      await lessonRequestsCollection.insertOne({
-        lessonId: result.insertedId,
-        title,
-        category,
-        authorEmail: author,
-        premium: premium || false,
-        approved: false,
-        createdAt: new Date(),
-      });
+//   if (!user) {
+//     await lessonUsersCollection.insertOne({
+//       email: authorEmail,
+//       name: authorName || "User",
+//       photo: authorPhoto || "",
+//       role: "user",
+//       premium: false,
+//       createdAt: new Date(),
+//     });
+//   }
 
-      res.send(result);
-    });
+//   // MAIN LESSON
+//   const lesson = {
+//     title,
+//     shortDescription,
+//     category,
+//     emotionalTone,
+//     authorEmail,
+//     authorName,
+//     authorPhoto,
+//     accessLevel: accessLevel || "public", // public | premium
+//     status: "pending",
+//     createdAt: new Date(),
+//   };
+
+//   const lessonResult = await lessonCollection.insertOne(lesson);
+
+//   // ADMIN REQUEST
+//   await lessonRequestsCollection.insertOne({
+//     lessonId: lessonResult.insertedId,
+//     title,
+//     category,
+//     authorEmail,
+//     accessLevel: accessLevel || "public",
+//     approved: false,
+//     createdAt: new Date(),
+//   });
+
+//   res.send({ success: true, lessonId: lessonResult.insertedId });
+// });
+
 
     app.get("/lessons/:id", async (req, res) => {
       const id = req.params.id;
@@ -119,14 +192,25 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/featured-lessons", async (req, res) => {
-      const result = await lessonCollection
-        .find({ premium: false, status: "approved" })
-        .sort({ createdAt: -1 })
-        .limit(6)
-        .toArray();
-      res.send(result);
-    });
+   app.get("/featured-lessons", async (req, res) => {
+  const lessons = await lessonCollection
+    .find({ status: "approved", accessLevel: "public" })
+    .sort({ createdAt: -1 })
+    .limit(6)
+    .toArray();
+
+  res.send(lessons);
+});
+
+//PUBLIC LESSONS API
+app.get("/public-lessons", async (req, res) => {
+  const lessons = await lessonCollection
+    .find({ status: "approved" })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.send(lessons);
+});
 
     // ===== ADMIN =====
     app.get("/admin/lesson-requests", verifyAdmin, async (req, res) => {
