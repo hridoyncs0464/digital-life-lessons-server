@@ -4,292 +4,275 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 require("dotenv").config();
 
-
-
 const port = process.env.PORT || 3100;
-console.log(process.env);
-   
 
-//middleWare
+// MIDDLEWARE
 app.use(cors());
 app.use(express.json());
 
+// MONGODB
 const uri = `mongodb+srv://${process.env.DB_US}:${process.env.DB_PASS}@cluster0.vdc0dd0.mongodb.net/?appName=Cluster0`;
-
-   
-
-// Creat a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
+  serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true },
 });
 
+// ROOT
 app.get("/", (req, res) => {
-  res.send("Utility bill managment system by Hridoy");
-});  
+  res.send("Utility bill management system by Hridoy");
+});
 
+// MAIN FUNCTION
 async function run() {
   try {
-    // await client.connect();
-
-    // creating database -0
+    await client.connect();
     const db = client.db("utilitybill_db");
+
+    // COLLECTIONS
     const utilitybillCollection = db.collection("utilitybills");
     const userCollection = db.collection("users");
     const myBillsCollection = db.collection("myBills");
-          const lessonCollection = db.collection("lessons");
 
-          
-          // API: Add Lesson (from user form)
-          app.post("/lessons", async (req, res) => {
-        const lesson = {
-     ...req.body,
-     status: "pending",     // admin approval needed
-    createdAt: new Date(),
-   };
+    const lessonCollection = db.collection("lessons");
+    const lessonUsersCollection = db.collection("lessonUsers");
+    const lessonRequestsCollection = db.collection("lessonRequests");
+    const reportedLessonsCollection = db.collection("reportedLessons");
 
-  const result = await lessonCollection.insertOne(lesson);
-  res.send(result);
-});
-  
-//API: Get Featured Lessons (Home Page) 
-app.get("/featured-lessons", async (req, res) => {
-  const result = await lessonCollection
-    .find({
-      premium: false,
-      status: "approved",
-    })
-    .sort({ createdAt: -1 })
-    .limit(6)
-    .toArray();
+    // VERIFY ADMIN
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.query.email || req.body.email;
+      if (!email) return res.status(401).send({ message: "Unauthorized access" });
 
-  res.send(result);
-});
+      const user = await lessonUsersCollection.findOne({ email });
+      if (!user || user.role !== "admin") return res.status(403).send({ message: "Forbidden: Admin only" });
 
+      next();
+    };
 
-//API: Lesson Details Page
-app.get("/lessons/:id", async (req, res) => {
-  const id = req.params.id;
-  const result = await lessonCollection.findOne({ _id: new ObjectId(id) });
-  res.send(result);
-});
+    // ===== LESSON USERS =====
+    app.post("/lesson-users", async (req, res) => {
+      const { email, name } = req.body;
+      const exists = await lessonUsersCollection.findOne({ email });
+      if (exists) return res.send({ message: "Lesson user already exists" });
 
-      //API: Admin Approves Lesson (Dashboard)
-          app.patch("/lessons/approve/:id", async (req, res) => {
-  const id = req.params.id;
-
-  const result = await lessonCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { status: "approved" } }
-  );
-
-  res.send(result);
-});
-
-
-
-
-
-
-    // Pay Bill API (After Submit)-6
-    app.post("/pay-bills", async (req, res) => {
-      const payBillData = req.body;
-
-      if (!payBillData.email) {
-        return res.status(400).send({
-          success: false,
-          message: "Email is required to pay a bill",
-        });
-      }
-
-      const alreadyPaid = await myBillsCollection.findOne({
-        billId: payBillData.billId,
-        email: payBillData.email,
+      const role = email === "admin1234@gmail.com" ? "admin" : "user";
+      const result = await lessonUsersCollection.insertOne({
+        email,
+        name,
+        role,
+        premium: false,
+        createdAt: new Date(),
       });
-                                               
-      if (alreadyPaid) {
-        return res.send({
-          success: false,
-          message: "This bill has already been paid.",
-        });
-      }
-
-      const result = await myBillsCollection.insertOne({
-        ...payBillData,
-        paidAt: new Date(),
-      });
-
-      res.send({
-        success: true,
-        message: "Bill paid successfully!",
-        result,
-      });
+      res.send(result);
     });
 
-    //API for New Users insert-4
-    app.post("/users", async (req, res) => {
-      const newUsers = req.body;
-
-      //cheaking is the user is already exists in the database or not
-
-      const email = req.body.email;
-      const query = { email: email };
-      const existingUser = await userCollection.findOne(query);
-      if (existingUser) {
-        res.send({
-          massage: "user already exists. do not need to insert again",
-        });
-      } else {
-        const result = await userCollection.insertOne(newUsers);
-        res.send(result);
-      }
-    });
- 
-    //get my pay bills by the user email -7
-    app.get("/my-pay-bills", async (req, res) => {
+    app.get("/lesson-users/role", async (req, res) => {
       const email = req.query.email;
-      if (!email) {
-        return res.send([]);
+      const user = await lessonUsersCollection.findOne({ email });
+      res.send({ role: user?.role || "user", premium: user?.premium || false });
+    });
+
+    // ===== LESSONS =====
+    // Add Lesson (User → Pending Approval)
+    app.post("/lessons", async (req, res) => {
+      const { author, title, category, premium } = req.body;
+
+      // Ensure user exists
+      let user = await lessonUsersCollection.findOne({ email: author });
+      if (!user) {
+        user = await lessonUsersCollection.insertOne({
+          email: author,
+          name: author,
+          role: "user",
+          premium: false,
+          createdAt: new Date(),
+        });
       }
 
-      const result = await myBillsCollection
-        .find({ email })
-        .sort({ paidAt: -1 })
+      // Insert lesson
+      const lesson = {
+        title,
+        category,
+        author,
+        premium: premium || false,
+        status: "pending",
+        createdAt: new Date(),
+      };
+      const result = await lessonCollection.insertOne(lesson);
+
+      // Insert into lessonRequests for admin approval
+      await lessonRequestsCollection.insertOne({
+        lessonId: result.insertedId,
+        title,
+        category,
+        authorEmail: author,
+        premium: premium || false,
+        approved: false,
+        createdAt: new Date(),
+      });
+
+      res.send(result);
+    });
+
+    app.get("/lessons/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await lessonCollection.findOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    app.get("/featured-lessons", async (req, res) => {
+      const result = await lessonCollection
+        .find({ premium: false, status: "approved" })
+        .sort({ createdAt: -1 })
+        .limit(6)
         .toArray();
       res.send(result);
     });
 
-    //update  my pay bill
+    // ===== ADMIN =====
+    app.get("/admin/lesson-requests", verifyAdmin, async (req, res) => {
+      const result = await lessonRequestsCollection.find({ approved: false }).sort({ createdAt: -1 }).toArray();
+      res.send(result);
+    });
+
+    app.patch("/admin/approve-lesson/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const lessonRequest = await lessonRequestsCollection.findOne({ _id: new ObjectId(id) });
+      if (!lessonRequest) return res.status(404).send({ message: "Lesson request not found" });
+
+      // Approve in main lessons collection
+      await lessonCollection.updateOne({ _id: lessonRequest.lessonId }, { $set: { status: "approved" } });
+
+      // Mark request as approved
+      const result = await lessonRequestsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { approved: true } });
+      res.send(result);
+    });
+
+    app.get("/admin/users", verifyAdmin, async (req, res) => {
+      const users = await lessonUsersCollection.find().toArray();
+      res.send(users);
+    });
+
+    app.patch("/admin/users/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const { role, premium } = req.body;
+      const result = await lessonUsersCollection.updateOne({ _id: new ObjectId(id) }, { $set: { role, premium } });
+      res.send(result);
+    });
+
+    app.delete("/admin/users/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const result = await lessonUsersCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    app.get("/admin/lessons", verifyAdmin, async (req, res) => {
+      const lessons = await lessonCollection.find().toArray();
+      res.send(lessons);
+    });
+
+    app.delete("/admin/lessons/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const result = await lessonCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    // Reported Lessons
+    app.get("/reported-lessons", verifyAdmin, async (req, res) => {
+      const reported = await reportedLessonsCollection.find().toArray();
+      res.send(reported);
+    });
+
+    app.patch("/reported-lessons/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const result = await reportedLessonsCollection.updateOne({ _id: new ObjectId(id) }, { $set: { ignored: true } });
+      res.send(result);
+    });
+
+    app.delete("/reported-lessons/:lessonId", verifyAdmin, async (req, res) => {
+      const lessonId = req.params.lessonId;
+      await lessonCollection.deleteOne({ _id: new ObjectId(lessonId) });
+      await reportedLessonsCollection.deleteMany({ lessonId });
+      res.send({ message: "Lesson and reports deleted successfully" });
+    });
+
+    // ===== BILL APIs (UNCHANGED) =====
+    app.post("/pay-bills", async (req, res) => {
+      const payBillData = req.body;
+      if (!payBillData.email) return res.status(400).send({ success: false, message: "Email is required" });
+
+      const alreadyPaid = await myBillsCollection.findOne({ billId: payBillData.billId, email: payBillData.email });
+      if (alreadyPaid) return res.send({ success: false, message: "Already paid" });
+
+      const result = await myBillsCollection.insertOne({ ...payBillData, paidAt: new Date() });
+      res.send({ success: true, result });
+    });
+
+    app.get("/my-pay-bills", async (req, res) => {
+      const email = req.query.email;
+      if (!email) return res.send([]);
+      const result = await myBillsCollection.find({ email }).sort({ paidAt: -1 }).toArray();
+      res.send(result);
+    });
+
     app.patch("/my-pay-bills/:id", async (req, res) => {
       const id = req.params.id;
       const updateData = req.body;
-
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          amount: updateData.amount,
-          address: updateData.address,
-          phone: updateData.phone,
-          date: updateData.date,
-        },
-      };
-
-      const result = await myBillsCollection.updateOne(query, updateDoc);
+      const result = await myBillsCollection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
       res.send(result);
     });
 
-
-
-    //delete my pay bills
     app.delete("/my-pay-bills/:id", async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-
-      const result = await myBillsCollection.deleteOne(query);
+      const result = await myBillsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
-    //get or to Fine all -1
     app.get("/bills", async (req, res) => {
-      //    const projectfileds = {
-      //     title:1,
-      //     category:1,
-      //     location:1,
-
-      //    }
-      //       const cursor = utilitybillCollection.find().sort({amount : 1}).limit(6).project(projectfileds);
-      const cursor = utilitybillCollection.find();
-      const result = await cursor.toArray();
+      const result = await utilitybillCollection.find().toArray();
       res.send(result);
     });
 
-    //recent bills API
     app.get("/recent-bills", async (req, res) => {
-      const cursor = utilitybillCollection
-        .find()
-        .sort({ created_at: -1 })
-        .limit(6);
-      const result = await cursor.toArray();
+      const result = await utilitybillCollection.find().sort({ created_at: -1 }).limit(6).toArray();
       res.send(result);
     });
 
-
-
-
-    //all bills  Api-5
     app.get("/all-bills", async (req, res) => {
-      const cursor = utilitybillCollection
-        .find()
-        .sort({ created_at: -1 })
-        .limit(36);
-      const result = await cursor.toArray();
+      const result = await utilitybillCollection.find().sort({ created_at: -1 }).limit(36).toArray();
       res.send(result);
     });
-                         
-                                                    
-    //get or to find a specific -2
-                       
-    //get or to find a specific -2
+
     app.get("/bills/:id", async (req, res) => {
       const id = req.params.id;
-      console.log(id);
-      const query = { _id: new ObjectId(id) };
-      const result = await utilitybillCollection.findOne(query);
+      const result = await utilitybillCollection.findOne({ _id: new ObjectId(id) });
       res.send(result);
     });
-                         
-    //API for insert-3
+
     app.post("/bills", async (req, res) => {
-      const newBills = req.body;
-      const result = await utilitybillCollection.insertOne(newBills);
+      const result = await utilitybillCollection.insertOne(req.body);
       res.send(result);
     });
-                   
 
-
-
-
-    //API for Update or patch-4
     app.patch("/bills/:id", async (req, res) => {
       const id = req.params.id;
-      const updatedBill = req.body;
-
-      const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          name: updatedBill.name,
-          amount: updatedBill.amount,
-        },
-      };
-
-      const result = await utilitybillCollection.updateOne(query, update);
+      const result = await utilitybillCollection.updateOne({ _id: new ObjectId(id) }, { $set: req.body });
       res.send(result);
     });
 
-    //API  for delete-5
     app.delete("/bills/:id", async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await utilitybillCollection.deleteOne(query);
+      const result = await utilitybillCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your Utility bill managment system . Hridoy successfully connected to MongoDB!"
-    );
+    console.log("MongoDB connected successfully");
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // client.close(); // optional
   }
 }
+
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(
-    `Yes,Utility bill managment system   by Hridoy listening on port ${port}`
-  );
+  console.log(`Server running by hridoy on port ${port}`);
 });
