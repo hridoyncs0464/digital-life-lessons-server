@@ -3,13 +3,17 @@ const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 require("dotenv").config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 const port = process.env.PORT || 3100;
 
 // MIDDLEWARE
 app.use(cors());
 app.use(express.json());
-
+ 
+const getDomain = (req) => {
+  return req.headers.origin || process.env.SITE_DOMAIN ; // Vite default port
+};
 // MONGODB
 const uri = `mongodb+srv://${process.env.DB_US}:${process.env.DB_PASS}@cluster0.vdc0dd0.mongodb.net/?appName=Cluster0`;
 const client = new MongoClient(uri, {
@@ -43,7 +47,7 @@ const reportedLessonsCollection = lessonDb.collection("reportedLessons");
   if (!email) {
     return res.status(401).send({ message: "Email required" });
   }
-
+  
   let user = await lessonUsersCollection.findOne({ email });
 
   // AUTO CREATE ADMIN IF NOT EXISTS
@@ -211,6 +215,206 @@ app.get("/public-lessons", async (req, res) => {
 
   res.send(lessons);
 });
+
+// ===== LESSON INTERACTIONS =====
+
+// Like / Unlike lesson
+app.patch("/lessons/:id/like", async (req, res) => {
+  const lessonId = req.params.id;
+  const { userId } = req.body;
+  if (!userId) return res.status(400).send({ success: false, message: "User ID required" });
+
+  const lesson = await lessonCollection.findOne({ _id: new ObjectId(lessonId) });
+  if (!lesson) return res.status(404).send({ success: false, message: "Lesson not found" });
+
+  const likes = lesson.likes || [];
+  const index = likes.indexOf(userId);
+
+  if (index === -1) {
+    likes.push(userId); // Like
+  } else {
+    likes.splice(index, 1); // Unlike
+  }
+
+  await lessonCollection.updateOne(
+    { _id: new ObjectId(lessonId) },
+    { $set: { likes, likesCount: likes.length } }
+  );
+
+  res.send({ success: true, likesCount: likes.length });
+});
+
+// Favorite / Unfavorite lesson
+app.patch("/lessons/:id/favorite", async (req, res) => {
+  const lessonId = req.params.id;
+  const { userId } = req.body;
+  if (!userId) return res.status(400).send({ success: false, message: "User ID required" });
+
+  const lesson = await lessonCollection.findOne({ _id: new ObjectId(lessonId) });
+  if (!lesson) return res.status(404).send({ success: false, message: "Lesson not found" });
+
+  const favorites = lesson.favorites || [];
+  const index = favorites.indexOf(userId);
+
+  if (index === -1) {
+    favorites.push(userId); // Add to favorites
+  } else {
+    favorites.splice(index, 1); // Remove from favorites
+  }
+
+  await lessonCollection.updateOne(
+    { _id: new ObjectId(lessonId) },
+    { $set: { favorites, favoritesCount: favorites.length } }
+  );
+
+  res.send({ success: true, favoritesCount: favorites.length });
+});
+
+// Report lesson
+app.post("/lessons/:id/report", async (req, res) => {
+  const lessonId = req.params.id;
+  const { userId, reason } = req.body;
+  if (!userId || !reason) return res.status(400).send({ success: false, message: "Missing fields" });
+
+  await reportedLessonsCollection.insertOne({
+    lessonId,
+    reporterUserId: userId,
+    reason,
+    timestamp: new Date(),
+    ignored: false,
+  });
+
+  res.send({ success: true, message: "Report submitted" });
+});
+
+//payment api 
+app.post('/create-checkout-session', async (req, res) => {
+  try {
+    const { userEmail } = req.body;
+ const YOUR_DOMAIN = getDomain(req);
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'bdt',
+          product_data: {
+            name: 'Digital Life Lessons - Premium Lifetime Access',
+            description: `Lifetime Premium access for ${userEmail}`,
+            images: ['https://images.unsplash.com/photo-1529333166437-7750a6dd5a70'], 
+          },
+          unit_amount: 150000, // ৳1500 (in paisa)
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${process.env.SITE_DOMAIN}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.SITE_DOMAIN}/payment/cancel`,
+      metadata: {
+        userEmail: userEmail,
+      },
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Stripe error:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+app.post("/users/make-premium", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).send({ success: false, message: "Email required" });
+    }
+
+    const result = await lessonUsersCollection.updateOne(
+      { email },
+      { $set: { premium: true, premiumActivatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ success: false, message: "User not found" });
+    }
+
+    res.send({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to update premium status" });
+  }
+});
+// app.post('/create-checkout-session', async (req, res) => {
+//   try {
+//     const { userEmail } = req.body;
+    
+//     const YOUR_DOMAIN = getDomain(req);
+
+//     const session = await stripe.checkout.sessions.create({
+//       payment_method_types: ['card'], // Like tutorial but explicit
+//       line_items: [
+//         {
+//           price_data: { // Dynamic pricing (better than PRICE_ID)
+//             currency: 'bdt',
+//             product_data: {
+//               name: 'Digital Life Lessons - Premium Lifetime ',
+//               description: `Lifetime Premium access for ${userEmail}`,
+//               images: ['https://images.unsplash.com/photo-1529333166437-7750a6dd5a70'], // Free image
+//             },
+//             unit_amount: 150000, // ৳1500.00 (in paisa)
+//           },
+//           quantity: 1,
+//         },
+//       ],
+//       mode: 'payment',
+//       success_url: `${YOUR_DOMAIN}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+//       cancel_url: `${YOUR_DOMAIN}/payment/cancel`,
+//       metadata: {
+//         userEmail: userEmail, // Pass email to success page
+//       },
+//     });
+
+//     // Tutorial style: Direct redirect (simpler for frontend)
+//     console.log(session)
+//     res.redirect(303, session.url);
+//     // res.send({url: session.url})
+//   } catch (error) {
+//     console.error('Stripe error:', error);
+//     res.status(500).send('Failed to create checkout session');
+//   }
+// });
+// app.post('/create-checkout-session', async (req, res) => {
+//   try {
+//     const { userEmail } = req.body;
+
+//     const session = await stripe.checkout.sessions.create({
+//       payment_method_types: ['card'],
+//       line_items: [{
+//         price_data: {
+//           currency: 'bdt',
+//           product_data: {
+//             name: 'Digital Life Lessons - Premium Lifetime Access',
+//             description: `Lifetime Premium access for ${userEmail}`,
+//             images: ['https://your-domain.com/premium-badge.png'], // Add your logo
+//           },
+//           unit_amount: 150000, // ৳1500 (in paisa)
+//         },
+//         quantity: 1,
+//       }],
+//       mode: 'payment',
+//       success_url: `${req.headers.origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+//       cancel_url: `${req.headers.origin}/payment/cancel`,
+//       metadata: {
+//         userEmail: userEmail,
+//       },
+//     });
+
+//     res.json({ url: session.url });
+//   } catch (error) {
+//     console.error('Stripe error:', error);
+//     res.status(500).json({ error: 'Failed to create checkout session' });
+//   }
+// });
+
 
     // ===== ADMIN =====
     app.get("/admin/lesson-requests", verifyAdmin, async (req, res) => {
