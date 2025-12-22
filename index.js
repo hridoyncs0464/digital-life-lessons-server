@@ -9,7 +9,18 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const port = process.env.PORT || 3100;
 
 // MIDDLEWARE
-app.use(cors());
+//aita change korlam 1
+// app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",// aita delete kore deta hobe 
+      process.env.SITE_DOMAIN,
+    ],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
 const getDomain = (req) => {
@@ -84,7 +95,7 @@ async function run() {
       const exists = await lessonUsersCollection.findOne({ email });
       if (exists) return res.send(exists);
 
-      const role = email === "rashedulislam13@niter.edu.bd" ? "admin" : "user";
+      const role = email === "admin1234@gmail.com" ? "admin" : "user";
 
       const result = await lessonUsersCollection.insertOne({
         email,
@@ -253,7 +264,7 @@ async function run() {
       res.send(lessons);
     });
 
-    // ===== LESSON INTERACTIONS =====
+    // ===== LESSON INTERACTIONS ==
     // Like / Unlike lesson
     app.patch("/lessons/:id/like", async (req, res) => {
       const lessonId = req.params.id;
@@ -291,7 +302,7 @@ async function run() {
 
 
 
-    
+
     // Favorite / Unfavorite lesson
     app.patch("/lessons/:id/favorite", async (req, res) => {
       const lessonId = req.params.id;
