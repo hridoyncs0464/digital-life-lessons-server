@@ -288,6 +288,10 @@ async function run() {
       res.send({ success: true, likesCount: likes.length });
     });
 
+
+
+
+    
     // Favorite / Unfavorite lesson
     app.patch("/lessons/:id/favorite", async (req, res) => {
       const lessonId = req.params.id;
@@ -321,6 +325,8 @@ async function run() {
 
       res.send({ success: true, favoritesCount: favorites.length });
     });
+
+
 
     // Report lesson
     app.post("/lessons/:id/report", async (req, res) => {
@@ -429,10 +435,10 @@ async function run() {
         { _id: new ObjectId(commentId) },
         { $set: { likes, likesCount: likes.length } }
       );
-
+                    
       res.send({ success: true, likesCount: likes.length });
     });
-
+                 
     app.delete("/comments/:id", async (req, res) => {
       const commentId = req.params.id;
       const { userId, userEmail } = req.body;
@@ -542,7 +548,7 @@ async function run() {
       }
     });
 
-    // Most Saved Lessons - Top 12 most favorited (unchanged)
+    // Most Saved Lessons - Top 12 most favorited 
     app.get("/most-saved-lessons", async (req, res) => {
       try {
         const mostSaved = await lessonCollection
@@ -593,7 +599,7 @@ async function run() {
       }
     });
 
-    // payment api (unchanged)
+    // payment api 
     app.post("/create-checkout-session", async (req, res) => {
       try {
         const { userEmail } = req.body;
