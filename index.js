@@ -11,10 +11,11 @@ const port = process.env.PORT || 3100;
 // MIDDLEWARE
 //aita change korlam 1
 // app.use(cors());
+
 app.use(
   cors({
     origin: [
-      "http://localhost:5173",// aita delete kore deta hobe 
+      "https://digital-life-lessons-5c16e.web.app",// aita delete kore deta hobe 
       process.env.SITE_DOMAIN,
     ],
     credentials: true,
@@ -35,7 +36,7 @@ const client = new MongoClient(uri, {
 
 // ROOT
 app.get("/", (req, res) => {
-  res.send("Utility bill management system by Hridoy");
+  res.send("Digital Life Lessons API is running");
 });
 
 // MAIN FUNCTION
@@ -254,7 +255,8 @@ async function run() {
       res.send(lessons);
     });
 
-    // PUBLIC LESSONS API (only approved)
+    // PUBLIC LESSONS API (only approved) /public-lessons
+    // PUBLIC LESSONS API (only approved) /public-lessons /public-lessons
     app.get("/public-lessons", async (req, res) => {
       const lessons = await lessonCollection
         .find({ status: "approved" })
@@ -820,7 +822,7 @@ async function run() {
       res.send({ message: "Lesson and reports deleted successfully" });
     });
 
-    console.log("MongoDB connected successfully");
+    // console.log("MongoDB connected successfully");
   } finally {
     // client.close(); // optional
   }
@@ -829,6 +831,6 @@ async function run() {
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(`Server running by hridoy on port ${port}`);
+  // console.log(`Server running by hridoy on port ${port}`);
 });
 
