@@ -11,7 +11,7 @@ const port = process.env.PORT || 3100;
 // MIDDLEWARE
 //aita change korlam 1
 // app.use(cors());
-
+//->
 app.use(
   cors({
     origin: [
@@ -21,6 +21,34 @@ app.use(
     credentials: true,
   })
 );
+//or 
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://digital-life-lessons-5c16e.web.app",
+//   "https://digital-life-lessons.vercel.app",
+// ];
+
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       // allow requests with no origin (Postman, server-to-server)
+//       if (!origin) return callback(null, true);
+
+//       if (allowedOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
+
+// // VERY IMPORTANT – handle preflight
+// app.options("*", cors());
+// //->
 
 app.use(express.json());
 
@@ -40,9 +68,8 @@ app.get("/", (req, res) => {
 });
 
 // MAIN FUNCTION
-async function run() {
+async function run() { 
   try {
-    await client.connect();
     const db = client.db("utilitybill_db");
     const lessonDb = client.db("lesson_database");
 
